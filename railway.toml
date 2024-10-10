@@ -1,0 +1,11 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python main.py"
+
+[variables]
+PYTHON_VERSION = "3.10"
+
+[phases.setup]
+aptPkgs = ["cmake", "libgl1-mesa-glx", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libx11-6"]
