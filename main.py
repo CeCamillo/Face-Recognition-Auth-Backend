@@ -4,10 +4,16 @@ import io
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from PIL import Image
 from typing import List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, LargeBinary
+from sqlalchemy import create_engine, Column, Integer, String, LargeBinary, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 from pydantic import BaseModel
+from enum import Enum as PyEnum
+
+class UserRole(str, PyEnum):
+    NORMAL = "normal"
+    DIRECTOR = "director"
+    MINISTER = "minister"
 
 URL_BANCO = "sqlite:///./banco.db"
 engine = create_engine(URL_BANCO, connect_args={"check_same_thread": False})
@@ -20,12 +26,12 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     face_encoding = Column(LargeBinary)
-
-Base.metadata.create_all(bind=engine)
+    role = Column(String, default=UserRole.NORMAL.value)
 
 class UserResponse(BaseModel):
     username: str
     message: str
+    role: UserRole
 
     class Config:
         from_attributes = True
@@ -51,7 +57,12 @@ def binary_to_numpy(binary):
     return np.load(out)
 
 @app.post("/register/{username}", response_model=UserResponse)
-async def register(username: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def register(
+    username: str, 
+    role: UserRole = UserRole.NORMAL,
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db)
+):
     existing_user = db.query(User).filter(User.username == username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -68,14 +79,19 @@ async def register(username: str, file: UploadFile = File(...), db: Session = De
     
     db_user = User(
         username=username,
-        face_encoding=numpy_to_binary(face_encoding)
+        face_encoding=numpy_to_binary(face_encoding),
+        role=role.value
     )
     
     try:
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
-        return UserResponse(username=username, message=f"User {username} registered successfully")
+        return UserResponse(
+            username=username, 
+            message=f"User {username} registered successfully", 
+            role=role
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -101,10 +117,13 @@ async def authenticate(file: UploadFile = File(...), db: Session = Depends(get_d
         if matches[0]:
             return UserResponse(
                 username=user.username,
-                message="Authentication successful"
+                message="Authentication successful",
+                role=UserRole(user.role)
             )
     
     raise HTTPException(status_code=401, detail="Authentication failed")
+
+Base.metadata.create_all(bind=engine)
 
 if __name__ == "__main__":
     import uvicorn
